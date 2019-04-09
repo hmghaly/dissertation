@@ -10,12 +10,15 @@ import torch
 import torch.nn as nn
 from torch.autograd import Variable
 
+import h5py
+import numpy as np
+
 torch.manual_seed(1)
 #cuda0 = torch.device('cuda:0') 
 
-n_epochs=3
+n_epochs=101
 
-device_num=2
+device_num=1
 
 if device_num==0: device_name="cuda:0"
 elif device_num==1: device_name="cuda:1"
@@ -32,7 +35,7 @@ class RNN(nn.Module):
 
         self.hidden_size = hidden_size
         self.batch_size = batch_size
-        
+
         self.lstm = nn.LSTM(input_size, hidden_size)      
         #self.lstm.cuda(cuda0)  
         self.hidden2out=nn.Linear(hidden_size,output_size)
@@ -110,14 +113,28 @@ def lpk(file1):
 def run_testing(cur_set): #to run for both devset and testset
     pred_items=[]
     print("Now testing", len(cur_set))
-    for d_, di in enumerate(cur_set):
-        if d_%100==0: print("testing, item", d_)
+
+    for i_,item in enumerate(cur_set):
+        if i_%100==0: print(i_)
+        #if i_==10: brea
         rnn.hidden = rnn.init_hidden()
         rnn.zero_grad()
-        compressed_matrix,parser_uas,sf_id, sent_size, parser_name=di
 
-        line_tensor=inflate_one_hot(compressed_matrix, n_input)
-        category_tensor=torch.tensor([parser_uas]).view([1,1,1])
+        item_data=cur_set[item]
+        line_tensor=torch.tensor(item_data)
+        parser_uas=cur_uas=item_data.attrs["uas"]
+        sent_size=item_data.attrs["sent_size"]
+        category_tensor=torch.tensor([cur_uas]).view([1,1,1])
+        sf_id="-".join(item.split("-")[:-1]) 
+        parser_name=item.split("-")[-1]
+
+
+    # for d_, di in enumerate(cur_set):
+    #     if d_%100==0: print("testing, item", d_)
+        #compressed_matrix,parser_uas,sf_id, sent_size, parser_name=di
+
+        #line_tensor=inflate_one_hot(compressed_matrix, n_input)
+        #category_tensor=torch.tensor([parser_uas]).view([1,1,1])
 
 
         # line_tensor=make_one_hot(cur_ft_dict,ft_size_dict,index_dict)
@@ -173,38 +190,68 @@ def run_testing(cur_set): #to run for both devset and testset
 
 
 if __name__=="__main__":
-    exp_name="exp0"
+    exp_name="exp11"
 
     #RNN setup
     #n_epochs=5
     n_hidden = 128
-    LR = 0.005           # learning rate
+    n_hidden = 64
+    n_hidden = 32
+    n_hidden = 16
+    LR = 0.0001           # learning rate
+    #LR = 0.0005           # learning rate
+    #LR = 0.0002           # learning rate
+    #LR = 0.00005           # learning rate
 
     #directories and files speification
     exp_dir=os.path.join(os.getcwd(),exp_name)
     train_size=30000
-    train_fname="train.pickle"
-    dev_fname="dev.pickle"
-    test_fname="test.pickle"
-    parameters_fname="parameters.json"
-    train_fpath=os.path.join(exp_dir,train_fname)
-    dev_fpath=os.path.join(exp_dir,dev_fname)
-    test_fpath=os.path.join(exp_dir,test_fname)
+
+
+
+    # train_fname="train.pickle"
+    # dev_fname="dev.pickle"
+    # test_fname="test.pickle"
+    # parameters_fname="parameters.json"
+    # train_fpath=os.path.join(exp_dir,train_fname)
+    # dev_fpath=os.path.join(exp_dir,dev_fname)
+    # test_fpath=os.path.join(exp_dir,test_fname)
 
     #get the parameters data
+    parameters_fname="parameters.json"
     parameters_fpath=os.path.join(exp_dir,parameters_fname)
     parameters_fopen=open(parameters_fpath)
     content=parameters_fopen.read()
     parameters_fopen.close()
-    parameters_dict=json.loads(content)
-    exp_parameters=parameters_dict
-    print(parameters_dict)
-    n_input=parameters_dict["n_input"]
+    exp_parameters=json.loads(content)
+    #exp_parameters=parameters_dict
+    print(exp_parameters)
+    n_input=exp_parameters["n_input"]
 
 
     #get the actual train and dev data
-    train_items_list=lpk(train_fpath)
-    dev_items_list=lpk(dev_fpath)
+    # train_items_list=lpk(train_fpath)
+    # dev_items_list=lpk(dev_fpath)
+    hdf5_fpath=os.path.join(exp_dir,"data.hdf5")
+    hdf5_file=h5py.File(hdf5_fpath, 'r')    
+    hdf5_train=hdf5_file["train"]
+    hdf5_dev=hdf5_file["dev"]
+
+    # train_items_list=[]
+
+    # start_loading=time.time()
+    # for i_,item in enumerate(hdf5_train):
+    #     if i_%100==0: print(i_)
+    #     item_data=hdf5_train[item]
+    #     cur_input_tensor=torch.tensor(item_data)
+    #     cur_uas=item_data.attrs["uas"]
+    #     cur_sent_size=item_data.attrs["sent_size"]
+    #     cur_category_tensor=torch.tensor([cur_uas]).view([1,1,1])
+    #     train_items_list.append((item,cur_uas,cur_sent_size,cur_input_tensor,cur_category_tensor))
+
+    # elapsed=time.time()-start_loading
+    # print("loaded %s training items in %s seconds"%(len(train_items_list),elapsed))
+        #print(item, item_data.shape, cur_uas, cur_sent_size)
 
     #now we start the network
     rnn = RNN(n_input, n_hidden, 1)
@@ -213,23 +260,42 @@ if __name__=="__main__":
     optimizer = torch.optim.Adam(rnn.parameters(), lr=LR)   # optimize all cnn parameters
 
     current_loss = 0
+    dev_loss=0
     all_losses = []
 
     #starting training
-    print("starting training")
+    print("starting training", len(hdf5_train))
+    start_time=time.time()
 
 
     prev_time=time.time()
     for e0 in range(n_epochs):
-        for t_,ti in enumerate(train_items_list):
-            if t_>1000: break 
-            if t_%100==0: print(t_)
-            compressed_matrix,parser_uas,sf_id, sent_size, parser_name=ti
-            #print(parser_uas,sf_id, sent_size, parser_name)
-            #print(compressed_matrix)
+        for i_,item in enumerate(hdf5_train):
+            #if i_%100==0: print(i_)
+            #if i_==50: break
+            item_data=hdf5_train[item]
+            # print(type(item_data))
+            # print(len(item_data) )
+            # print(item_data.file)
+            # print(dir(item_data) )
 
-            line_tensor=inflate_one_hot(compressed_matrix, n_input)
-            category_tensor=torch.tensor([parser_uas]).view([1,1,1])
+            line_tensor=torch.tensor(item_data)
+            #line_tensor=item_data
+            cur_uas=item_data.attrs["uas"]
+            cur_sent_size=item_data.attrs["sent_size"]
+            category_tensor=torch.tensor([cur_uas]).view([1,1,1])
+            #train_items_list.append((item,cur_uas,cur_sent_size,cur_input_tensor,cur_category_tensor))
+
+
+        # for t_,ti in enumerate(train_items_list):
+        #     if t_>100: break 
+        #     #if t_%100==0: print(t_)
+        #     compressed_matrix,parser_uas,sf_id, sent_size, parser_name=ti
+        #     #print(parser_uas,sf_id, sent_size, parser_name)
+        #     #print(compressed_matrix)
+
+        #     line_tensor=inflate_one_hot(compressed_matrix, n_input)
+        #     category_tensor=torch.tensor([parser_uas]).view([1,1,1])
 
             #the RNN part in the training
             rnn.hidden = rnn.init_hidden()
@@ -248,15 +314,78 @@ if __name__=="__main__":
             
             loss.backward()
             optimizer.step()
-        elapsed=time.time()-prev_time
-        prev_time=time.time()
+        # elapsed=time.time()-prev_time
+        # prev_time=time.time()
         #print("training, epoch",e0, "item", t_, "elapsed", elapsed)
 
-        print("%s\t%s\t%s"%(e0,current_loss.item(),elapsed))
+
+        
+        for i_,item in enumerate(hdf5_dev):
+            #if i_%100==0: print(i_)
+            #if i_==100: break
+            rnn.hidden = rnn.init_hidden()
+            rnn.zero_grad()
+
+            item_data=hdf5_dev[item]
+            line_tensor=torch.tensor(item_data)
+            parser_uas=cur_uas=item_data.attrs["uas"]
+            sent_size=item_data.attrs["sent_size"]
+            category_tensor=torch.tensor([cur_uas]).view([1,1,1])
+            sf_id="-".join(item.split("-")[:-1]) 
+            parser_name=item.split("-")[-1]
+
+            for i in range(line_tensor.size()[0]):
+                cur_tensor=line_tensor[i]#.view([(1, 1, 3)])
+                #cur_tensor=torch.randn(1, 1, n_input)
+                cur_tensor=cur_tensor.view([1,1,n_input])
+
+                output = rnn(cur_tensor)
+            category_tensor=category_tensor.to(device)
+            cur_dev_loss = loss_func(output, category_tensor)
+            dev_loss += cur_dev_loss
+
+        elapsed=time.time()-prev_time
+        prev_time=time.time()
+        #print("%s\t%s\t%s\t%s"%(e0,current_loss.item(),dev_loss.item(),elapsed))
+        avg_train_loss=float(current_loss.item())/len(hdf5_train)
+        avg_dev_loss=float(dev_loss.item())/len(hdf5_dev)
+        print("%s\t%s\t%s\t%s\t%s\t%s"%(e0,current_loss.item(),dev_loss.item(),avg_train_loss,avg_dev_loss,elapsed))
         current_loss = 0
-    model_path=os.path.join(exp_dir,"model.pth")
+        dev_loss=0
+        if True:
+        #if e0>0 and e0%10==0: #save model every 10 epochs
+            #model_path=os.path.join(exp_dir,"model-%s.pth"%e0)
+            model_sd_path=os.path.join(exp_dir,"model-sd-%s.pth"%e0)#state dict
+            torch.save(rnn.state_dict(), model_sd_path)
+            #torch.save(rnn, model_path)
+
+
+
+
+
+
+
+        #print()
+        #print("%s\t%s\t%s\t%s"%(e0,current_loss.item(),dev_loss.item(),elapsed))
+
+
+
+
+    training_time=time.time()-start_time
+    print("training completed in %s seconds"%training_time)
+    model_path=os.path.join(exp_dir,"model-final.pth")
+
+    # print(rnn)
+    # pytorch_total_params = sum(p.numel() for p in rnn.parameters())
+    # print("sum the number of elements for every parameter group", pytorch_total_params)
+
+    # pytorch_total_params = sum(p.numel() for p in rnn.parameters() if p.requires_grad)
+    # print("only the trainable parameters", pytorch_total_params)
+
     torch.save(rnn, model_path)
     print("now predicting")
-    dev_pred_list=run_testing(dev_items_list)
+    dev_pred_list=run_testing(hdf5_dev)
+    hdf5_file.close()
+
 
 

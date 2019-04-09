@@ -10,11 +10,14 @@ import torch
 import torch.nn as nn
 from torch.autograd import Variable
 
+import h5py
+import numpy as np
+
 torch.manual_seed(1)
 
 n_epochs=5
 
-device_num=2
+device_num=1
 
 if device_num==0: device_name="cuda:0"
 elif device_num==1: device_name="cuda:1"
@@ -84,21 +87,21 @@ def lpk(file1):
 def run_testing(cur_set): #to run for both devset and testset
     pred_items=[]
     print("Now testing", len(cur_set))
-    for d_, di in enumerate(cur_set):
-        if d_%100==0: print("testing, item", d_)
+
+    for i_,item in enumerate(cur_set):
+        if i_%100==0: print(i_)
+        #if i_==10: brea
         rnn.hidden = rnn.init_hidden()
         rnn.zero_grad()
-        compressed_matrix,parser_uas,sf_id, sent_size, parser_name=di
 
-        line_tensor=inflate_one_hot(compressed_matrix, n_input)
-        category_tensor=torch.tensor([parser_uas]).view([1,1,1])
-
-
-        # line_tensor=make_one_hot(cur_ft_dict,ft_size_dict,index_dict)
-        # #print(line_tensor)
-        # category_tensor=torch.tensor([parser_uas]).view([1,1,1])
-
-
+        item_data=cur_set[item]
+        line_tensor=torch.tensor(item_data)#.to(device)
+        #print(line_tensor)
+        parser_uas=cur_uas=item_data.attrs["uas"]
+        sent_size=item_data.attrs["sent_size"]
+        category_tensor=torch.tensor([cur_uas]).view([1,1,1])
+        sf_id="-".join(item.split("-")[:-1]) 
+        parser_name=item.split("-")[-1]
         for i in range(line_tensor.size()[0]):
             cur_tensor=line_tensor[i]#.view([(1, 1, 3)])
             #cur_tensor=torch.randn(1, 1, n_input)
@@ -109,9 +112,6 @@ def run_testing(cur_set): #to run for both devset and testset
 
         pred_items.append((sf_id, sent_size, parser_name, parser_uas,predicted))
 
-        # print(sf_id, parser_name, parser_uas)
-        # print(output, predicted)
-        # print("-----")
 
     grouped_items=[(key,[v[1:] for v in list(group)]) for key,group in groupby(pred_items,lambda x:x[0])]
     cum_ensemble_pred=0
@@ -149,7 +149,8 @@ def run_testing(cur_set): #to run for both devset and testset
 
 
 if __name__=="__main__":
-    exp_name="exp0"
+    exp_name="exp10"
+    model_name="model-sd-20.pth"
 
     #RNN setup
     #n_epochs=5
@@ -177,18 +178,43 @@ if __name__=="__main__":
     n_input=parameters_dict["n_input"]
     exp_parameters=parameters_dict
 
+    hdf5_fpath=os.path.join(exp_dir,"data.hdf5")
+    hdf5_file=h5py.File(hdf5_fpath, 'r')    
+    hdf5_train=hdf5_file["train"]
+    hdf5_dev=hdf5_file["dev"]
+    hdf5_test=hdf5_file["test"]
+
+    print("train", len(hdf5_train), "dev", len(hdf5_dev),"test",len(hdf5_test))
+
+    #now loading the trained model
+    model_path=os.path.join(exp_dir,model_name)
+    rnn = RNN(n_input, n_hidden, 1)
+    rnn.to(device)
+    rnn.load_state_dict(torch.load(model_path))
+    rnn.eval()
+    #print(rnn)
+
+
 
     #get the actual train and dev data
     #train_items_list=lpk(train_fpath)
-    dev_items_list=lpk(dev_fpath)
-    test_items_list=lpk(test_fpath)
+    #dev_items_list=lpk(dev_fpath)
+    #test_items_list=lpk(test_fpath)
 
-    #now loading the trained model
-    model_path=os.path.join(exp_dir,"model.pth")
-    rnn = torch.load(model_path)
-    rnn.eval()
+    
+    
+    #rnn = torch.load(model_path)
+    
+    
 
     print("evaluating devset")
-    run_testing(dev_items_list)
+    #run_testing(dev_items_list)
+    dev_pred_list=run_testing(hdf5_dev)
+    
+    print("evaluating testset")
+    dev_pred_list=run_testing(hdf5_test)
+
+    hdf5_file.close()
+
 
 

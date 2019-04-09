@@ -1,4 +1,4 @@
-import os, sys, re, subprocess, time, json, pickle
+import os, sys, re, subprocess, time, json, pickle, math
 
 if sys.version[0]=="3": 
     import _pickle as cPickle
@@ -10,12 +10,38 @@ from itertools import groupby
 from collections import Counter
 sys.path.append("../../utils")
 from dep_lib import *
-
+from gensim.models import Word2Vec #installed for python2 only
 
 import torch
 import torch.nn as nn
 from torch.autograd import Variable
 
+import h5py
+import numpy as np
+
+import nltk
+from nltk.tag import pos_tag, map_tag
+
+UNIVERSAL_TAGS = (
+    'VERB',
+    'NOUN',
+    'PRON',
+    'ADJ',
+    'ADV',
+    'ADP',
+    'CONJ',
+    'DET',
+    'NUM',
+    'PRT',
+    'X',
+    '.',
+)
+
+def simplify_tag(tag):
+    if tag.upper() in UNIVERSAL_TAGS: return tag.upper()
+    if 'CONJ' in tag.upper(): return 'CONJ'
+    if 'PART' in tag.upper(): return 'PRT'
+    return map_tag('en-ptb', 'universal', tag)
 
 # CPickle
 def cpk2(var1,file1):
@@ -96,6 +122,22 @@ def extract_features(input_conll,input_acoustics,parameters={}):
         cur_word_pairs=conll_obj.word_dep_pairs
         cur_ft_dict["words"]=[strip_tobi(v[0]) for v in cur_word_pairs]
         cur_ft_dict["heads"]=[strip_tobi(v[1]) for v in cur_word_pairs]
+    if parameters.get("ft-word-word-embeddings",False):
+        cur_word_pairs=conll_obj.word_dep_pairs
+        cur_ft_dict["words-embeddings"]=[strip_tobi(v[0]) for v in cur_word_pairs]
+        cur_ft_dict["heads-embeddings"]=[strip_tobi(v[1]) for v in cur_word_pairs]
+
+    if parameters.get("ft-pos",False):
+        #words=[v[0] for v in conll_obj.word_pos_pairs]
+        cur_pos_raw=[v[1] for v in conll_obj.word_pos_pairs]
+        cur_pos_simplified=[simplify_tag(v) for v in cur_pos_raw]
+        cur_ft_dict["pos"]=cur_pos_simplified
+        # print("words", words)
+        # print("cur_pos_raw", cur_pos_raw)
+        # print("cur_pos_simplified", cur_pos_simplified)
+        # print("----------")
+
+
     if parameters.get("ft-tobi",False):
         cur_ft_dict["tobi"]=[v[1] for v in input_acoustics]
         #cur_ft_dict["tobi_num"]=tobi_list=[float(v[1][0]) for v in input_acoustics]
@@ -103,6 +145,14 @@ def extract_features(input_conll,input_acoustics,parameters={}):
         #cur_ft_dict["tobi_p"]=tobi_list=[v[1][-1].lower()=="p" for v in input_acoustics]
     if parameters.get("ft-dur",False):
         cur_ft_dict["dur"]=[float(v[2]) for v in input_acoustics]
+    if parameters.get("ft-dur-log",False):
+        dur_vals=[float(v[2]) for v in input_acoustics]
+        dur_vals=[v if v>0 else 0.001 for v in dur_vals]
+
+        #cur_ft_dict["dur-log"]=[math.log(float(v[2])) for v in input_acoustics]
+        cur_ft_dict["dur-log"]=[math.log(v) for v in dur_vals]
+        #print(cur_ft_dict["dur-log"])
+
     if parameters.get("ft-dur-diff",False):
         tmp_dur_diff_list=[1]
         for i,a in enumerate(input_acoustics[:-1]):
@@ -155,10 +205,91 @@ def v2t(vec,integer=False): #build a tensor form a 2-d list
     else: tensor = torch.zeros(len(vec), 1, len(vec[0]))
 
     for vi, v1 in enumerate(vec):
-        tensor[vi][0]=torch.tensor(v1)
+        #tensor[vi][0]=torch.tensor(v1)
+        #print(len(v1), v1)
+        tensor[vi][0]=torch.as_tensor(v1)
+        
         #tensor[vi][0]=torch.tensor(v1, dtype=torch.long)
         
     return tensor
+
+
+
+def make_tensor_embedding(input_ft_dict,ft_size_dict,ft_index_dict,embedding_model):
+
+    matrix=[]
+    keys=list(sorted(cur_ft_dict.keys(),reverse=True))
+    #print("!!!!!!!!!!!", keys)
+    sent_size=len(cur_ft_dict[keys[0]])
+    
+
+    for i in range(sent_size):
+        cur_row=[]
+        for k in keys:
+            cur_val=cur_ft_dict[k][i]
+            one_hot_size=ft_size_dict.get(k)
+            #print(i,k,cur_val)
+            if "embedding" in k:
+                cur_word=cur_ft_dict[k][i]
+                try: cur_embedding=list(embedding_model[cur_word])
+                except: cur_embedding=[0.0]*100
+                #print(cur_word, cur_embedding[:10])
+                cur_row.extend(cur_embedding)
+            elif one_hot_size==None: cur_row.append(cur_val)
+            else:
+                cur_zeros=[0.0]*one_hot_size
+                #(ft_name,val0)
+                cur_index=index_dict[(k,cur_val)]
+                cur_zeros[cur_index]=1.0
+                cur_row.extend(cur_zeros)
+
+
+
+        matrix.append(cur_row)
+    #tensor1 = torch.zeros(sent_size, 1, len(cur_row))
+
+    #cur_tensor=v2t(matrix)
+    cur_tensor=torch.FloatTensor(matrix)
+    cur_tensor=cur_tensor.view(sent_size,1,len(cur_row))
+    #print(cur_tensor.shape)
+    return cur_tensor
+
+
+
+def make_tensor_embedding_OLD(input_ft_dict,ft_size_dict,ft_index_dict,embedding_model):
+    one_hot_matrix=[]
+    keys=list(sorted(cur_ft_dict.keys(),reverse=True))
+    print("!!!!!!!!!!!", keys)
+    for i in range(sent_size):
+        cur_row=[]
+        for k in keys:
+            cur_val=cur_ft_dict[k][i]
+            print(i,k,cur_val)
+            one_hot_size=ft_size_dict.get(k)
+            if "embedding" in k:
+                cur_word=cur_ft_dict[k][i]
+                print(">>>>> cur_word", cur_word)
+
+                try: cur_embedding=list(embedding_model[cur_word])#.get(cur_word,[1,1,1])
+                except: cur_embedding=[0.0]*100
+
+                cur_row.extend(cur_embedding)
+            elif one_hot_size==None: cur_row.append(cur_val)
+            else:
+                cur_zeros=[0.0]*one_hot_size
+                #(ft_name,val0)
+                cur_index=index_dict[(k,cur_val)]
+                cur_zeros[cur_index]=1.0
+                cur_row.extend(cur_zeros)
+        one_hot_matrix.append(cur_row)
+    #one_hot_tensor= one_hot_matrix
+    print(cur_ft_dict)
+    for oh in one_hot_matrix:
+        print(oh)
+        print("--------")
+    one_hot_tensor=v2t(one_hot_matrix)
+    #return one_hot_matrix#one_hot_tensor
+    return one_hot_tensor
 
 
 def make_one_hot(input_ft_dict,ft_size_dict,ft_index_dict):
@@ -178,8 +309,9 @@ def make_one_hot(input_ft_dict,ft_size_dict,ft_index_dict):
                 cur_zeros[cur_index]=1
                 cur_row.extend(cur_zeros)
         one_hot_matrix.append(cur_row)
-    #one_hot_tensor=v2t(one_hot_matrix)
-    return one_hot_matrix#one_hot_tensor
+    one_hot_tensor=v2t(one_hot_matrix)
+    #return one_hot_matrix#one_hot_tensor
+    return one_hot_tensor
 
 def make_one_hot_compressed(input_ft_dict,ft_size_dict,ft_index_dict):
     one_hot_matrix=[]
@@ -216,31 +348,38 @@ def make_one_hot_compressed(input_ft_dict,ft_size_dict,ft_index_dict):
 
 
 if __name__=="__main__":
-    exp_name="exp0"
+    t0=time.time()
+    exp_name="exp11"
     exp_dir=os.path.join(os.getcwd(),exp_name)
     if not os.path.exists(exp_dir): os.makedirs(exp_dir)
     train_size=30000
     # Keep track of losses for plotting
     list_parameters=[]
     exp_parameters={}
-    exp_parameters["ft-word-word"]=True
+    exp_parameters["ft-word-word"]=False
+    exp_parameters["ft-word-word-embeddings"]=True
     exp_parameters["ft-configs"]=False
     exp_parameters["ft-links"]=False
     exp_parameters["ft-brackets"]=False
+    exp_parameters["ft-pos"]=True
     #cur_exp_params=dict(exp_parameters)
     #list_parameters.append(cur_exp_params)
 
     #prosodic featues
     exp_parameters["ft-tobi"]=False
     exp_parameters["ft-dur"]=False
+
     exp_parameters["ft-pause"]=False
     exp_parameters["ft-dur-diff"]=False
+    exp_parameters["ft-dur-log"]=False
+
+    gensim_model = Word2Vec.load('gensim-model.bin')
 
 
     #list_parameters.append(exp_parameters)
     #list_parameters.reverse()
 
-    category_features=["words","heads","tobi","configs","links"] #we convert their values to indexes, use one-hot
+    category_features=["words","heads","tobi","configs","links","pos"] #we convert their values to indexes, use one-hot
     #for exp_parameters in list_parameters:
 
     gold_fpath="gold-dep-tobi.txt"
@@ -288,8 +427,11 @@ if __name__=="__main__":
         print(sd_name, len(sd_ids))
         #continue
         for si,sf_id in enumerate(sd_ids):
+            #if si==100: break
             if si%500==0: print(sd_name, "current sentence", si)
             gold_conll=gold_dict.get(sf_id)
+
+            
 
             cur_acoustics=acoustics_dict[sf_id]
             cur_acoustics_2d=[v.split("\t") for v in cur_acoustics.split("\n")[1:] if v]
@@ -301,15 +443,31 @@ if __name__=="__main__":
 
 
             parsers_out=parser_output_dict[sf_id]
+            if sd_name=="train": #we augment only with training
+                parsers_out["gold"]=1,sent_size,gold_conll
+                gold_conll_obj=conll(gold_conll)
+                new_trees=gold_conll_obj.augment(max_n=10)
+                for nti,nt in enumerate(new_trees):
+                    aug_name="aug-%s"%nti
+                    aug_uas,aug_conll=nt[1],nt[0]
+                    parsers_out[aug_name]=aug_uas,sent_size,aug_conll
+                    #print(nt[0])
+                    #print(nt[1])
+
+            #print(gold_conll)
+            #print("-------")
+
             parsers_out_list=[]
             parser_matrixes=[]
             all_uas_vals=[]
             for parser_name in parsers_out:
                 items=parsers_out[parser_name]
                 parser_uas,sent_size,cur_parser_conll=items
+                #print(sf_id,parser_name,parser_uas,sent_size)
                 parser_uas=float(parser_uas)
                 cur_ft_dict=extract_features(cur_parser_conll, cur_acoustics_2d, exp_parameters)
 
+                #print(cur_ft_dict)
                 for ft_name in cur_ft_dict:
                     vals=cur_ft_dict[ft_name]
                     if ft_name in category_features: 
@@ -350,25 +508,41 @@ if __name__=="__main__":
         #print(ft0,size0)
         n_input+=size0 #the final input size is the sum of the size allocated to each feature
 
-    exp_parameters["n_input"]=n_input #size of the input feature matrix
-    parameters_json=json.dumps(exp_parameters)
-    parameters_fpath=os.path.join(exp_dir,"parameters.json")
-    parameters_file=open(parameters_fpath,"w")
-    parameters_file.write(parameters_json)
-    parameters_file.close()
 
 
     print("converting to tensors")
+    hdf5_fpath=os.path.join(exp_dir,"data.hdf5")
+    hdf5_file=h5py.File(hdf5_fpath, 'w')
     for it,cur_items in items_dict.items():
-        pickle_fname=it+".pickle"
-        pickle_fpath=os.path.join(exp_dir,pickle_fname)
+        #pickle_fname=it+".pickle"
+        #pickle_fpath=os.path.join(exp_dir,pickle_fname)
         print(it, len(cur_items))
         cur_tensor_list=[]
+        grp = hdf5_file.create_group(it) #creating a group for train/test/dev
+        
         for i_,ti in enumerate(cur_items):
+            #if i_>10: break
             if i_%500==0: print(i_)
             cur_ft_dict,sf_id, sent_size, parser_name, parser_uas=ti
-            #one_hot_matrix=make_one_hot(cur_ft_dict,ft_size_dict,index_dict)#.cuda(cuda0)
-            compressed_matrix=make_one_hot_compressed(cur_ft_dict,ft_size_dict,index_dict)
+            new_tensor=make_tensor_embedding(cur_ft_dict,ft_size_dict,index_dict,gensim_model)#.cuda(cuda0)
+            one_hot_tensor_numpy=new_tensor.numpy()
+            #continue
+            #print(cur_ft_dict)
+            #one_hot_tensor=make_one_hot(cur_ft_dict,ft_size_dict,index_dict)#.cuda(cuda0)
+            #one_hot_tensor=[]
+            
+
+            #one_hot_tensor_numpy=one_hot_tensor.numpy()
+            one_hot_tensor_torch=torch.tensor(one_hot_tensor_numpy)
+            #print(list(one_hot_tensor_numpy.shape) )
+            n_input=list(one_hot_tensor_numpy.shape)[-1]
+            example_id="%s-%s"%(sf_id,parser_name)
+            #dset = grp.create_dataset(example_id, data=one_hot_tensor_numpy, compression="gzip")
+            dset = grp.create_dataset(example_id, data=one_hot_tensor_torch, compression="gzip")
+            dset.attrs["uas"]=parser_uas
+            dset.attrs["sent_size"]=sent_size
+
+            #compressed_matrix=make_one_hot_compressed(cur_ft_dict,ft_size_dict,index_dict)
             #print(compressed_matrix)
             # for cm in compressed_matrix:
             #     print(cm)
@@ -377,9 +551,25 @@ if __name__=="__main__":
             #category_tensor=torch.tensor([parser_uas]).view([1,1,1])
             #cur_tensor_list.append((line_tensor,category_tensor))
             #cur_tensor_list.append((one_hot_matrix,parser_uas))
-            cur_tensor_list.append((compressed_matrix,parser_uas,sf_id, sent_size, parser_name))
-        cpk(cur_tensor_list,pickle_fpath)
+        #     cur_tensor_list.append((compressed_matrix,parser_uas,sf_id, sent_size, parser_name))
+        # cpk(cur_tensor_list,pickle_fpath)
+
+    # for item in hdf5_file:
+    #     obj=hdf5_file[item]
+    #     for ds in obj:
+    #         cur_data=obj[ds]
+    #         print(item, ds, cur_data.shape, cur_data.attrs["uas"])
+        #print(item)
+    hdf5_file.close()
+    elapsed=time.time()-t0
+    print("finished pre-processing in %s seconds"%elapsed)
 
 
+    exp_parameters["n_input"]=n_input #size of the input feature matrix
+    parameters_json=json.dumps(exp_parameters)
+    parameters_fpath=os.path.join(exp_dir,"parameters.json")
+    parameters_file=open(parameters_fpath,"w")
+    parameters_file.write(parameters_json)
+    parameters_file.close()
 
 
