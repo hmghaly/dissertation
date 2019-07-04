@@ -356,7 +356,7 @@ if __name__=="__main__":
     exp_parameters["ft-pause"]=True
     exp_parameters["ft-pause-binary"]=False
     exp_parameters["pause-norm"]=False
-    exp_parameters["ft-dur-diff"]=erue
+    exp_parameters["ft-dur-diff"]=True
     exp_parameters["ft-dur-log"]=True
     
     print(exp_parameters)
@@ -518,9 +518,9 @@ if __name__=="__main__":
         cur_tensor_list=[]
         grp = hdf5_file.create_group(it) #creating a group for train/test/dev
         
-        set_shelve_fpath=_s.path.join(exp_dir,it+".shelve")
-set_shelve_fpathopen=shelve.open()set_shelve_fpath
-                for i_,ti in enumerate(cur_items):
+        set_shelve_fpath=os.path.join(exp_dir,it+".shelve")
+        set_shelve_fopen=shelve.open(set_shelve_fpath)
+        for i_,ti in enumerate(cur_items):
                     #if i_>10: break
             if i_%500==0: print(i_)
             #cur_ft_dict,sf_id, sent_size, parser_name, parser_uas=ti
@@ -545,13 +545,13 @@ set_shelve_fpathopen=shelve.open()set_shelve_fpath
             dset.attrs["correct_heads"]=correct_heads
 
             #compressed_matrix=make_one_hot_compresse
-d(cur_ft_diccur_obj={}
-            cur_obj={}            t.attrs["uas"]=parser_uas
-            cur_objdset.attrs["sent_size"]=sent_size
-            t.attrs["correct_heads"]=correct_heads
-            cur_objcur_obj["seatures"]=one_hot_tensor_numpyparser_uas            
-t,ft_size_diset_shelvf_fopenct,index_dict)
-            set_shelve_fopen
+
+            cur_obj={}            
+            cur_obj["uas"]=parser_uas
+            cur_obj["sent_size"]=sent_size
+            cur_obj["correct_heads"]=correct_heads
+            cur_obj["features"]=one_hot_tensor_numpy
+            set_shelve_fopen[example_id]=one_hot_tensor_numpy
             # print("---------")
             #line_tensor=make_one_hot(cur_ft_dict,ft_size_dict,index_dict)#.cuda(cuda0)
             #category_tensor=torch.tensor([parser_uas]).view([1,1,1])
@@ -561,7 +561,7 @@ t,ft_size_diset_shelvf_fopenct,index_dict)
         # cpk(cur_tensor_list,pickle_fpath)
 
     #for item in hdf5_file:
-        set_shelve_fopen)close()    #    obj=hdf5_file[item]
+        set_shelve_fopen.close()    #    obj=hdf5_file[item]
     #    for ds in obj:
     #        cur_data=obj[ds]
     #        print(item, ds, cur_data.shape, cur_data.attrs["uas"], cur_data.attrs["offsets"])
