@@ -327,7 +327,7 @@ if __name__=="__main__":
     if len(sys.argv)>1: 
         exp_name=sys.argv[1]
     print(exp_name)
-
+        
     exp_dir=os.path.join(os.getcwd(),exp_name)
     if not os.path.exists(exp_dir): os.makedirs(exp_dir)
     train_size=30000
@@ -518,9 +518,12 @@ if __name__=="__main__":
         cur_tensor_list=[]
         grp = hdf5_file.create_group(it) #creating a group for train/test/dev
         
-        set_shelve_fpath=os.path.join(exp_dir,it+".shelve")
-        set_shelve_fopen=shelve.open(set_shelve_fpath)
-        
+        #set_shelve_fpath=o_s.path.join(exp_dir,it+".shelve")
+        #set_shelve_fopen=shelve.open(set_shelve_fpath)
+        set_ids_fpath=os.path.join(exp_dir,it+"-ids.txt")
+        set_ids_fopen=open(set_ids_fpath,"w")
+        #ids_fopen.close()
+        #        
         for i_,ti in enumerate(cur_items):
                     #if i_>10: break
             if i_%500==0: print(i_)
@@ -545,16 +548,19 @@ if __name__=="__main__":
             dset.attrs["sent_size"]=sent_size
             dset.attrs["correct_heads"]=correct_heads
 
-            #compressed_matrix=make_one_hot_compresse
 
-            cur_obj={}            
-            cur_obj["uas"]=parser_uas
-            cur_obj["sent_size"]=sent_size
-            cur_obj["correct_heads"]=correct_heads
-            cur_obj["features"]=one_hot_tensor_numpy
-            set_shelve_fopen[example_id]=cur_obj
+            set_ids_fopen.write(example_id+"\n")
+                        #compressed_matrix=make_one_hot_compresse
+
+            #cur_obj={}            
+            #cur_objt.attrs["uas"]=parser_uas
+            #cur_objcur_objdset.attrs["sent_size"]=sent_size
+            #cur_objt.attrs["correct_heads"]=correct_heads
+            #cur_obj["fseatures"]=one_hot_tensor_nump
+            #set_shelve_fopen[example_id]=cur_obj
+            ###
             # print("---------")
-            #line_tensor=make_one_hot(cur_ft_dict,ft_size_dict,index_dict)#.cuda(cuda0)
+                        #line_tensor=make_one_hot(cur_ft_dict,ft_size_dict,index_dict)#.cuda(cuda0)
             #category_tensor=torch.tensor([parser_uas]).view([1,1,1])
             #cur_tensor_list.append((line_tensor,category_tensor))
             #cur_tensor_list.append((one_hot_matrix,parser_uas))
@@ -563,8 +569,9 @@ if __name__=="__main__":
 
     #for item in hdf5_file:
         set_shelve_fopen.close()    #    obj=hdf5_file[item]
-    #    for ds in obj:
-    #        cur_data=obj[ds]
+    #   # for ds in obj:
+        #ids_fopen.close()
+    #   set_ids_fopen     cur_data=obj[ds]
     #        print(item, ds, cur_data.shape, cur_data.attrs["uas"], cur_data.attrs["offsets"])
     #    #print(item)
     hdf5_file.close()
