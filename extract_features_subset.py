@@ -568,7 +568,7 @@ if __name__=="__main__":
         # cpk(cur_tensor_list,pickle_fpath)
 
     #for item in hdf5_file:
-        set_shelve_fopen.close()    #    obj=hdf5_file[item]
+        set_ids_fopen.close()    #    obj=hdf5_file[item]
     #   # for ds in obj:
         #ids_fopen.close()
     #   set_ids_fopen     cur_data=obj[ds]
