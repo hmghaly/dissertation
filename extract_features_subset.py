@@ -520,6 +520,7 @@ if __name__=="__main__":
         
         set_shelve_fpath=os.path.join(exp_dir,it+".shelve")
         set_shelve_fopen=shelve.open(set_shelve_fpath)
+        
         for i_,ti in enumerate(cur_items):
                     #if i_>10: break
             if i_%500==0: print(i_)
@@ -551,7 +552,7 @@ if __name__=="__main__":
             cur_obj["sent_size"]=sent_size
             cur_obj["correct_heads"]=correct_heads
             cur_obj["features"]=one_hot_tensor_numpy
-            set_shelve_fopen[example_id]=one_hot_tensor_numpy
+            set_shelve_fopen[example_id]=cur_obj
             # print("---------")
             #line_tensor=make_one_hot(cur_ft_dict,ft_size_dict,index_dict)#.cuda(cuda0)
             #category_tensor=torch.tensor([parser_uas]).view([1,1,1])
